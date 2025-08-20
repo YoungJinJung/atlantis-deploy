@@ -1,3 +1,7 @@
+data "local_file" "atlantis_server_config" {
+  filename = "atlantis_server_config.yaml"
+}
+
 locals {
   # VPC - existing or new?
   vpc_id             = var.vpc_id == "" ? module.vpc.vpc_id : var.vpc_id
@@ -5,7 +9,7 @@ locals {
   public_subnet_ids  = coalescelist(module.vpc.public_subnets, var.public_subnet_ids, [""])
 
   # Atlantis
-  atlantis_image = var.atlantis_image == "" ? "runatlantis/atlantis:${var.atlantis_version}" : var.atlantis_image
+  atlantis_image = var.atlantis_image == "" ? "ghcr.io/runatlantis/atlantis:${var.atlantis_version}" : var.atlantis_image
   atlantis_url = "https://${coalesce(
     element(concat(aws_route53_record.atlantis.*.fqdn, [""]), 0),
     module.alb.dns_name,
@@ -63,9 +67,17 @@ locals {
       value = var.atlantis_bitbucket_base_url
     },
     {
-      name  = "ATLANTIS_REPO_WHITELIST"
+      name  = "ATLANTIS_REPO_ALLOWLIST"
       value = join(",", var.atlantis_repo_whitelist)
     },
+    {
+      name  = "ATLANTIS_REPO_CONFIG_JSON"
+      value = jsonencode(yamldecode(data.local_file.atlantis_server_config.content))
+    },
+    {
+      name = "TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE"
+      value = "true"
+    }
   ]
 
   # Secret access tokens
@@ -186,7 +198,7 @@ module "alb" {
   listeners = [
     {
       port            = 443
-      protocol = "HTTPS"
+      protocol        = "HTTPS"
       certificate_arn = var.certificate_arn == "" ? module.acm.acm_certificate_arn : var.certificate_arn
       forward = {
         target_group_key = "target"
